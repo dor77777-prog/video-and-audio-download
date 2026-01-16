@@ -446,6 +446,20 @@ def extract_metadata(url: str) -> dict:
         'no_warnings': True,
         'extract_flat': False,
         'skip_download': True,
+        'socket_timeout': 30,
+        'retries': 3,
+        'fragment_retries': 3,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://www.google.com/',
+        },
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        },
     }
     
     try:
@@ -628,12 +642,16 @@ def main():
                         st.error("❌ לא ניתן לנתח את הקישור. נסו קישור אחר.")
                 except Exception as e:
                     error_msg = str(e)
-                    if "403" in error_msg or "blocked" in error_msg.lower():
-                        st.error("🚫 הגישה נחסמה. ייתכן שהפלטפורמה חוסמת בקשות משרתי ענן.")
-                    elif "cookies" in error_msg.lower():
-                        st.error("🍪 נדרש אימות. נסו קישור ציבורי אחר.")
+                    if "login" in error_msg.lower() or "cookies" in error_msg.lower():
+                        st.error("� פלטפורמה זו דורשת התחברות. נסו פלטפורמה אחרת (YouTube, TikTok ציבורי, וכו').")
+                    elif "instagram" in error_msg.lower():
+                        st.error("📸 אינסטגרם דורש התחברות. נסו סרטון ציבורי מפלטפורמה אחרת.")
+                    elif "403" in error_msg or "blocked" in error_msg.lower() or "rate" in error_msg.lower():
+                        st.error("🚫 הגישה נחסמה זמנית. המתינו דקה ונסו שוב.")
+                    elif "not available" in error_msg.lower():
+                        st.error("❌ התוכן אינו זמין או פרטי. נסו קישור אחר.")
                     else:
-                        st.error(f"❌ שגיאה: {error_msg}")
+                        st.error(f"❌ שגיאה: {error_msg[:100]}")
     
     # Display metadata and download options
     if st.session_state.metadata:
