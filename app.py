@@ -437,69 +437,102 @@ def get_platform_emoji(platform: str) -> str:
 # YT-DLP FUNCTIONS
 # =============================================================================
 
-def extract_metadata(url: str) -> dict:
-    """Extract video/audio metadata without downloading."""
-    log_to_console(f"Extracting metadata from: {url}")
-    
-    ydl_opts = {
+def get_ydl_base_opts() -> dict:
+    """Get base yt-dlp options that work for all platforms."""
+    return {
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
-        'skip_download': True,
-        'socket_timeout': 30,
-        'retries': 3,
-        'fragment_retries': 3,
+        'socket_timeout': 60,
+        'retries': 10,
+        'fragment_retries': 10,
+        'file_access_retries': 5,
+        'extractor_retries': 5,
+        'ignoreerrors': False,
+        'no_color': True,
+        'geo_bypass': True,
+        'geo_bypass_country': 'US',
+        'nocheckcertificate': True,
+        'prefer_insecure': False,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://www.google.com/',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,he;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
         },
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
-            }
+                'skip': ['hls', 'dash'],
+            },
+            'instagram': {
+                'skip': ['dash'],
+            },
+            'tiktok': {
+                'api_hostname': 'api22-normal-c-useast2a.tiktokv.com',
+            },
         },
+        # Try to use cookies from browser for authenticated content
+        'cookiesfrombrowser': ('chrome',),
     }
+
+def extract_metadata(url: str) -> dict:
+    """Extract video/audio metadata without downloading."""
+    log_to_console(f"Extracting metadata from: {url}")
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            if info:
-                metadata = {
-                    'title': info.get('title', 'Unknown'),
-                    'duration': info.get('duration', 0),
-                    'thumbnail': info.get('thumbnail', ''),
-                    'uploader': info.get('uploader', 'Unknown'),
-                    'view_count': info.get('view_count', 0),
-                    'platform': get_platform_name(url),
-                    'url': url,
-                    'formats': info.get('formats', []),
-                }
-                log_to_console(f"Metadata extracted: {metadata['title']}")
-                return metadata
-    except Exception as e:
-        log_to_console(f"Error extracting metadata: {str(e)}", "error")
-        raise e
+    # Try with cookies first, then without
+    for use_cookies in [True, False]:
+        ydl_opts = get_ydl_base_opts()
+        ydl_opts['extract_flat'] = False
+        ydl_opts['skip_download'] = True
+        
+        if not use_cookies:
+            ydl_opts.pop('cookiesfrombrowser', None)
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                
+                if info:
+                    metadata = {
+                        'title': info.get('title', 'Unknown'),
+                        'duration': info.get('duration', 0),
+                        'thumbnail': info.get('thumbnail', ''),
+                        'uploader': info.get('uploader', 'Unknown'),
+                        'view_count': info.get('view_count', 0),
+                        'platform': get_platform_name(url),
+                        'url': url,
+                        'formats': info.get('formats', []),
+                    }
+                    log_to_console(f"Metadata extracted: {metadata['title']}")
+                    return metadata
+        except Exception as e:
+            if use_cookies:
+                # Try again without cookies
+                log_to_console(f"Trying without cookies: {str(e)}", "warning")
+                continue
+            else:
+                log_to_console(f"Error extracting metadata: {str(e)}", "error")
+                raise e
     
     return None
 
 def build_ydl_options(temp_dir: str, download_type: str, extension: str, quality: str) -> dict:
     """Build yt-dlp options based on user selection."""
     
-    base_opts = {
-        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-        'quiet': False,
-        'no_warnings': False,
-        'merge_output_format': extension if download_type == 'video' else None,
-        'postprocessor_args': ['-y'],  # Overwrite without asking
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-        },
-    }
+    base_opts = get_ydl_base_opts()
+    base_opts['quiet'] = False
+    base_opts['no_warnings'] = False
+    base_opts['outtmpl'] = os.path.join(temp_dir, '%(title)s.%(ext)s')
+    base_opts['merge_output_format'] = extension if download_type == 'video' else None
+    base_opts['postprocessor_args'] = ['-y']  # Overwrite without asking
     
     if download_type == 'video':
         # Video quality mapping
@@ -556,29 +589,40 @@ def download_content(url: str, download_type: str, extension: str, quality: str)
     log_to_console(f"Starting download: type={download_type}, ext={extension}, quality={quality}")
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        ydl_opts = build_ydl_options(temp_dir, download_type, extension, quality)
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+        # Try with cookies first, then without
+        for use_cookies in [True, False]:
+            ydl_opts = build_ydl_options(temp_dir, download_type, extension, quality)
             
-            # Find the downloaded file
-            files = list(Path(temp_dir).glob('*'))
-            if files:
-                downloaded_file = files[0]
-                log_to_console(f"Download complete: {downloaded_file.name}")
+            if not use_cookies:
+                ydl_opts.pop('cookiesfrombrowser', None)
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
                 
-                # Read file into memory
-                with open(downloaded_file, 'rb') as f:
-                    file_bytes = f.read()
-                
-                return downloaded_file.name, file_bytes
-            else:
-                raise Exception("לא נמצא קובץ שהורד")
-                
-        except Exception as e:
-            log_to_console(f"Download error: {str(e)}", "error")
-            raise e
+                # Find the downloaded file
+                files = list(Path(temp_dir).glob('*'))
+                if files:
+                    downloaded_file = files[0]
+                    log_to_console(f"Download complete: {downloaded_file.name}")
+                    
+                    # Read file into memory
+                    with open(downloaded_file, 'rb') as f:
+                        file_bytes = f.read()
+                    
+                    return downloaded_file.name, file_bytes
+                else:
+                    raise Exception("לא נמצא קובץ שהורד")
+                    
+            except Exception as e:
+                if use_cookies:
+                    log_to_console(f"Trying download without cookies: {str(e)}", "warning")
+                    continue
+                else:
+                    log_to_console(f"Download error: {str(e)}", "error")
+                    raise e
+    
+    raise Exception("לא ניתן להוריד את הקובץ")
 
 # =============================================================================
 # STREAMLIT APP
